@@ -344,16 +344,7 @@ Please file a bug at https://github.com/shorebirdtech/shorebird/issues/new with 
     //    error: exportArchive: Communication with Apple failed
     //    error: exportArchive: No signing certificate "iOS Distribution" found
     //    error: exportArchive: Communication with Apple failed
-    final errorRegex = RegExp(r'error: (.+)$');
-
-    return stderr
-        .split('\n')
-        .map((l) => l.trim())
-        .toSet()
-        .map(errorRegex.firstMatch)
-        .whereType<Match>()
-        .map((m) => '    ${m.group(1)!}')
-        .join('\n');
+    return stderr;
   }
 
   /// A wrapper around [command] (which runs a `flutter build` command with
