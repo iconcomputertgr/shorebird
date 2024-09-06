@@ -822,19 +822,19 @@ error: exportArchive: No signing certificate "iOS Distribution" found''',
               );
             });
 
-            test('throws ArtifactBuildException with error message', () {
-              expect(
-                () => runWithOverrides(() => builder.buildIpa(codesign: false)),
+            test('throws ArtifactBuildException with error message', () async {
+              await expectLater(
+                runWithOverrides(() => builder.buildIpa(codesign: false)),
                 throwsA(
                   isA<ArtifactBuildException>().having(
                     (e) => e.message,
                     'message',
                     '''
 Failed to build:
-    Communication with Apple failed
-    No signing certificate "iOS Distribution" found
-    Team "My Team" does not have permission to create "iOS App Store" provisioning profiles.
-    No profiles for 'com.example.co' were found''',
+    exportArchive: Communication with Apple failed
+    exportArchive: No signing certificate "iOS Distribution" found
+    exportArchive: Team "My Team" does not have permission to create "iOS App Store" provisioning profiles.
+    exportArchive: No profiles for 'com.example.co' were found''',
                   ),
                 ),
               );
