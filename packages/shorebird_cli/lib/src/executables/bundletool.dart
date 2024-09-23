@@ -48,6 +48,7 @@ class Bundletool {
     final result = await _exec(
       [
         'build-apks',
+        '--connected-device',
         '--overwrite',
         '--bundle=$bundle',
         '--output=$output',
