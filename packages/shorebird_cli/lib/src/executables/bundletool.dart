@@ -52,7 +52,6 @@ class Bundletool {
         '--overwrite',
         '--bundle=$bundle',
         '--output=$output',
-        '--mode=universal',
       ],
     );
     if (result.exitCode != 0) {
