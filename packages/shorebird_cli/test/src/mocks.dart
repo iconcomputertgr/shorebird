@@ -25,7 +25,7 @@ import 'package:shorebird_cli/src/doctor.dart';
 import 'package:shorebird_cli/src/engine_config.dart';
 import 'package:shorebird_cli/src/executables/devicectl/apple_device.dart';
 import 'package:shorebird_cli/src/executables/executables.dart';
-import 'package:shorebird_cli/src/logger.dart';
+import 'package:shorebird_cli/src/logging/logging.dart';
 import 'package:shorebird_cli/src/network_checker.dart';
 import 'package:shorebird_cli/src/os/os.dart';
 import 'package:shorebird_cli/src/patch_diff_checker.dart';
@@ -59,6 +59,8 @@ class MockAppleDevice extends Mock implements AppleDevice {}
 
 class MockArchiveDiffer extends Mock implements ArchiveDiffer {}
 
+class MockArgParser extends Mock implements ArgParser {}
+
 class MockArgResults extends Mock implements ArgResults {}
 
 class MockArtifactBuilder extends Mock implements ArtifactBuilder {}
@@ -78,6 +80,8 @@ class MockCodePushClient extends Mock implements CodePushClient {}
 class MockCodePushClientWrapper extends Mock implements CodePushClientWrapper {}
 
 class MockCodeSigner extends Mock implements CodeSigner {}
+
+class MockDetailProgress extends Mock implements DetailProgress {}
 
 class MockDevicectl extends Mock implements Devicectl {}
 

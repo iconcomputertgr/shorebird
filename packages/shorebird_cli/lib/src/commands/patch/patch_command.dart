@@ -15,7 +15,7 @@ import 'package:shorebird_cli/src/config/config.dart';
 import 'package:shorebird_cli/src/deployment_track.dart';
 import 'package:shorebird_cli/src/extensions/arg_results.dart';
 import 'package:shorebird_cli/src/formatters/formatters.dart';
-import 'package:shorebird_cli/src/logger.dart';
+import 'package:shorebird_cli/src/logging/logging.dart';
 import 'package:shorebird_cli/src/metadata/metadata.dart';
 import 'package:shorebird_cli/src/patch_diff_checker.dart';
 import 'package:shorebird_cli/src/platform.dart';
@@ -123,6 +123,10 @@ of the iOS app that is using this module.''',
       ..addOption(
         CommonArguments.publicKeyArg.name,
         help: CommonArguments.publicKeyArg.description,
+      )
+      ..addOption(
+        CommonArguments.splitDebugInfoArg.name,
+        help: CommonArguments.splitDebugInfoArg.description,
       );
   }
 
@@ -178,24 +182,28 @@ NOTE: this is ${styleBold.wrap('not')} recommended. Asset changes cannot be incl
       case ReleaseType.android:
         return AndroidPatcher(
           argResults: results,
+          argParser: argParser,
           flavor: flavor,
           target: target,
         );
       case ReleaseType.ios:
         return IosPatcher(
           argResults: results,
+          argParser: argParser,
           flavor: flavor,
           target: target,
         );
       case ReleaseType.iosFramework:
         return IosFrameworkPatcher(
           argResults: results,
+          argParser: argParser,
           flavor: flavor,
           target: target,
         );
       case ReleaseType.aar:
         return AarPatcher(
           argResults: results,
+          argParser: argParser,
           flavor: flavor,
           target: target,
         );
@@ -451,18 +459,16 @@ ${summary.join('\n')}
     required ReleaseArtifact releaseArtifact,
     required Patcher patcher,
   }) async {
-    final downloadProgress =
-        logger.progress('Downloading ${patcher.primaryReleaseArtifactArch}');
     final File artifactFile;
     try {
-      artifactFile =
-          await artifactManager.downloadFile(Uri.parse(releaseArtifact.url));
-    } catch (e) {
-      downloadProgress.fail(e.toString());
+      artifactFile = await artifactManager.downloadWithProgressUpdates(
+        Uri.parse(releaseArtifact.url),
+        message: 'Downloading ${patcher.primaryReleaseArtifactArch}',
+      );
+    } catch (_) {
       throw ProcessExit(ExitCode.software.code);
     }
 
-    downloadProgress.complete();
     return artifactFile;
   }
 }

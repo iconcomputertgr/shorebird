@@ -13,10 +13,11 @@ import 'package:path/path.dart' as p;
 import 'package:shorebird_cli/src/artifact_manager.dart';
 import 'package:shorebird_cli/src/cache.dart';
 import 'package:shorebird_cli/src/code_push_client_wrapper.dart';
+import 'package:shorebird_cli/src/common_arguments.dart';
 import 'package:shorebird_cli/src/deployment_track.dart';
 import 'package:shorebird_cli/src/executables/devicectl/apple_device.dart';
 import 'package:shorebird_cli/src/executables/executables.dart';
-import 'package:shorebird_cli/src/logger.dart';
+import 'package:shorebird_cli/src/logging/logging.dart';
 import 'package:shorebird_cli/src/platform.dart';
 import 'package:shorebird_cli/src/shorebird_command.dart';
 import 'package:shorebird_cli/src/shorebird_env.dart';
@@ -43,8 +44,8 @@ class PreviewCommand extends ShorebirdCommand {
         help: 'The ID of the app to preview the release for.',
       )
       ..addOption(
-        'release-version',
-        help: 'The version of the release (e.g. "1.0.0").',
+        CommonArguments.releaseVersionArg.name,
+        help: CommonArguments.releaseVersionArg.description,
       )
       ..addOption(
         'platform',
@@ -361,7 +362,8 @@ class PreviewCommand extends ShorebirdCommand {
     final buildApksProgress = logger.progress('Building apks');
     try {
       await bundletool.buildApks(bundle: aabFile.path, output: apksPath);
-      buildApksProgress.complete();
+      final apksLink = link(uri: Uri.parse(apksPath));
+      buildApksProgress.complete('Built apks: ${cyan.wrap(apksLink)}');
     } catch (error) {
       buildApksProgress.fail('$error');
       return ExitCode.software.code;

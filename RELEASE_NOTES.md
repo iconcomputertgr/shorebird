@@ -6,6 +6,43 @@ cspell:words pubspec erickzanardo xcframeworks Cupertino codesign codecov rkisha
 
 This section contains past updates we've sent to customers.
 
+## 1.4.9 (November 4, 2024)
+
+- 📦 Release new Flutter 3.24.4 revision to support `package:shorebird_code_push` rewrite (v2.0.0-dev.1)
+- 🦀 Improved logs in the Shorebird Updater
+- 🧑‍🔧 Fix gradle version detection in `shorebird doctor`
+
+## 1.4.8 (October 29, 2024)
+
+- 📦 Add `shorebird releases get-apk` command
+- 🛠️ Fix error handling when building ipa fails using Xcode 16
+- 🐌 Add warning when windows artifact download is slower than expected
+
+## 1.4.7 (October 28, 2024)
+
+- 🐦 Support for Flutter 3.24.4
+- 🪵 Include gradle tasks when releasing android
+
+## 1.4.6 (October 24, 2024)
+
+- 🍧 Fix issue with `shorebird release ios` where flavored apps would sometimes
+  upload the incorrect binary.
+
+## 1.4.5 (October 23, 2024)
+
+- 🧑‍🔧 Fix bug when patching with `--split-debug-info` on iOS
+  - `shorebird release` and `shorebird patch` now have first party support for `--split-debug-info`
+- 🪵 Do not output error message when `-h` flag is passed
+
+## 1.4.4 (October 22, 2024)
+
+- 📈 Add download progress to patch commands
+
+## 1.4.3 (October 21, 2024)
+
+- 🧑‍⚕️ Fix `shorebird doctor -v` download speed test on Windows
+- 🍎 Enforce minimum Flutter version for `shorebird release ios-framework`
+
 ## 1.4.2 (October 18, 2024)
 
 - 📦 Include artifact download speed test in `shorebird doctor -v`

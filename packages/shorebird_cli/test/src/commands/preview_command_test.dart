@@ -19,7 +19,7 @@ import 'package:shorebird_cli/src/deployment_track.dart';
 import 'package:shorebird_cli/src/executables/devicectl/apple_device.dart';
 import 'package:shorebird_cli/src/executables/executables.dart';
 import 'package:shorebird_cli/src/http_client/http_client.dart';
-import 'package:shorebird_cli/src/logger.dart';
+import 'package:shorebird_cli/src/logging/logging.dart';
 import 'package:shorebird_cli/src/platform.dart';
 import 'package:shorebird_cli/src/shorebird_env.dart';
 import 'package:shorebird_cli/src/shorebird_validator.dart';
@@ -441,6 +441,14 @@ void main() {
             ReleasePlatform.ios: ReleaseStatus.active,
             ReleasePlatform.android: ReleaseStatus.active,
           });
+        });
+
+        test('outputs apks path', () async {
+          await runWithOverrides(command.run);
+          final apksLink = link(uri: Uri.parse(apksPath()));
+          verify(
+            () => progress.complete('Built apks: ${cyan.wrap(apksLink)}'),
+          ).called(1);
         });
 
         test('does not prompt for platform, uses android', () async {

@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:mason_logger/mason_logger.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:path/path.dart' as p;
 import 'package:scoped_deps/scoped_deps.dart';
@@ -8,7 +10,7 @@ import 'package:shorebird_cli/src/artifact_manager.dart';
 import 'package:shorebird_cli/src/cache.dart';
 import 'package:shorebird_cli/src/executables/executables.dart';
 import 'package:shorebird_cli/src/http_client/http_client.dart';
-import 'package:shorebird_cli/src/logger.dart';
+import 'package:shorebird_cli/src/logging/logging.dart';
 import 'package:shorebird_cli/src/shorebird_env.dart';
 import 'package:shorebird_cli/src/shorebird_process.dart';
 import 'package:test/test.dart';
@@ -229,18 +231,170 @@ void main() {
 
         expect(result.path, endsWith('artifact'));
       });
+    });
 
-      test('returns provided output path when specified', () async {
-        final tempDir = Directory.systemTemp.createTempSync();
-        final outFile = File(p.join(tempDir.path, 'file.out'));
-        final result = await runWithOverrides(
-          () async => artifactManager.downloadFile(
-            Uri.parse('https://example.com'),
-            outputPath: outFile.path,
-          ),
-        );
+    group('downloadFileWithProgress', () {
+      group('with progress update', () {
+        group('when response contentLength is null', () {
+          setUp(() {
+            when(() => httpClient.send(any())).thenAnswer(
+              (_) async => http.StreamedResponse(
+                Stream.fromIterable([
+                  [1],
+                  [2],
+                  [3],
+                ]),
+                HttpStatus.ok,
+              ),
+            );
+          });
 
-        expect(result.path, equals(outFile.path));
+          test('does not add to stream', () async {
+            final download = await runWithOverrides(
+              () => artifactManager.startFileDownload(
+                Uri.parse('https://example.com'),
+              ),
+            );
+
+            expect(await download.progress.toList(), isEmpty);
+          });
+        });
+
+        group('when response contentLength is not null', () {
+          setUp(() {
+            when(() => httpClient.send(any())).thenAnswer(
+              (_) async => http.StreamedResponse(
+                Stream.fromIterable([
+                  [1],
+                  [2],
+                  [3],
+                ]),
+                HttpStatus.ok,
+                contentLength: 3,
+              ),
+            );
+          });
+
+          test('calls onProgress with correct percentage', () async {
+            final download = await runWithOverrides(
+              () => artifactManager.startFileDownload(
+                Uri.parse('https://example.com'),
+              ),
+            );
+
+            expect(download.progress, emitsInOrder([1 / 3, 2 / 3, 3 / 3]));
+          });
+
+          test('uses outputPath when specified', () async {
+            final tempDir = Directory.systemTemp.createTempSync();
+            final outputPath = p.join(tempDir.path, 'output-file.txt');
+            final download = await runWithOverrides(
+              () => artifactManager.startFileDownload(
+                Uri.parse('https://example.com'),
+                outputPath: outputPath,
+              ),
+            );
+            final file = await download.file;
+            expect(file.path, equals(outputPath));
+            expect(file.lengthSync(), equals(3));
+          });
+        });
+      });
+    });
+
+    group('downloadWithProgressUpdates', () {
+      late Progress progress;
+
+      setUp(() {
+        progress = MockProgress();
+        when(() => logger.progress(any())).thenReturn(progress);
+      });
+
+      group('when download fails', () {
+        setUp(() {
+          const error = 'Not Found';
+          when(() => httpClient.send(any())).thenAnswer(
+            (_) async => http.StreamedResponse(
+              const Stream.empty(),
+              HttpStatus.notFound,
+              reasonPhrase: error,
+            ),
+          );
+        });
+
+        test('progress fails with error message', () async {
+          await expectLater(
+            runWithOverrides(
+              () => artifactManager.downloadWithProgressUpdates(
+                Uri.parse('https://example.com'),
+                message: 'hello',
+              ),
+            ),
+            throwsA(
+              isA<Exception>().having(
+                (e) => e.toString(),
+                'exception',
+                'Exception: Failed to download file: 404 Not Found',
+              ),
+            ),
+          );
+
+          verify(
+            () => progress.fail(
+              '''hello failed: Exception: Failed to download file: 404 Not Found''',
+            ),
+          ).called(1);
+        });
+      });
+
+      group('when download succeeds', () {
+        late StreamController<List<int>> responseStreamController;
+
+        setUp(() {
+          responseStreamController = StreamController<List<int>>();
+          when(() => httpClient.send(any())).thenAnswer(
+            (_) async => http.StreamedResponse(
+              responseStreamController.stream,
+              HttpStatus.ok,
+              contentLength: 5,
+            ),
+          );
+        });
+
+        test('progress updates with a throttled ', () async {
+          // Awaiting this will cause the test to hang
+          unawaited(
+            runWithOverrides(
+              () => artifactManager.downloadWithProgressUpdates(
+                Uri.parse('https://example.com'),
+                message: 'hello',
+                throttleDuration: const Duration(milliseconds: 50),
+              ),
+            ),
+          );
+          // Download the first 3/5. The first addition will trigger the first
+          // progress update, the second addition will be throttled, and the
+          // third addition will trigger the second progress update after the
+          // delay.
+          responseStreamController
+            ..add([1])
+            ..add([1])
+            ..add([1]);
+          await Future<void>.delayed(const Duration(milliseconds: 70));
+          // Download the last 2/5, bringing the total to 5/5
+          responseStreamController.add([1, 1]);
+          await Future<void>.delayed(const Duration(milliseconds: 70));
+          verifyInOrder([
+            () => progress.update('hello (20%)'),
+            () => progress.update('hello (60%)'),
+            () => progress.update('hello (100%)'),
+          ]);
+          verifyNever(() => progress.update('hello (0%)'));
+          verifyNever(() => progress.update('hello (20%)'));
+          verifyNever(() => progress.update('hello (80%)'));
+          verifyNoMoreInteractions(progress);
+          await responseStreamController.close();
+        });
       });
     });
 
@@ -438,6 +592,66 @@ void main() {
           expect(result!.path, equals(archiveDirectory.path));
         });
       });
+
+      group(
+        'when multiple xcarchive directories exist',
+        () {
+          late Directory oldArchiveDirectory;
+          late Directory newArchiveDirectory;
+
+          setUp(() async {
+            oldArchiveDirectory = Directory(
+              p.join(
+                projectRoot.path,
+                'build',
+                'ios',
+                'archive',
+                'Runner.xcarchive',
+              ),
+            )..createSync(recursive: true);
+            // Wait to ensure the new archive directory is created after the old
+            // archive directory.
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+            newArchiveDirectory = Directory(
+              p.join(
+                projectRoot.path,
+                'build',
+                'ios',
+                'archive',
+                'Runner2.xcarchive',
+              ),
+            )..createSync(recursive: true);
+          });
+
+          test('selects the most recently updated xcarchive', () async {
+            final firstResult = runWithOverrides(
+              () => artifactManager.getXcarchiveDirectory(),
+            );
+            // The new archive directory should be selected because it was
+            // created after the old archive directory.
+            expect(firstResult!.path, equals(newArchiveDirectory.path));
+
+            // Now recreate the old archive directory and ensure it is selected.
+            oldArchiveDirectory.deleteSync(recursive: true);
+            oldArchiveDirectory = Directory(
+              p.join(
+                projectRoot.path,
+                'build',
+                'ios',
+                'archive',
+                'Runner.xcarchive',
+              ),
+            )..createSync(recursive: true);
+            final secondResult = runWithOverrides(
+              () => artifactManager.getXcarchiveDirectory(),
+            );
+            expect(secondResult!.path, equals(oldArchiveDirectory.path));
+          });
+        },
+        onPlatform: {
+          'windows': const Skip('Flaky on Windows'),
+        },
+      );
 
       group('when archive directory does not exist', () {
         test('returns null', () {

@@ -1,11 +1,12 @@
 // cspell:words endtemplate aabs ipas appbundle bryanoltman codesign xcarchive
 // cspell:words xcframework
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:mason_logger/mason_logger.dart';
 import 'package:scoped_deps/scoped_deps.dart';
 import 'package:shorebird_cli/src/extensions/shorebird_process_result.dart';
-import 'package:shorebird_cli/src/logger.dart';
+import 'package:shorebird_cli/src/logging/logging.dart';
 import 'package:shorebird_cli/src/os/operating_system_interface.dart';
 import 'package:shorebird_cli/src/platform/platform.dart';
 import 'package:shorebird_cli/src/shorebird_android_artifacts.dart';
@@ -86,6 +87,7 @@ class ArtifactBuilder {
     Iterable<Arch>? targetPlatforms,
     List<String> args = const [],
     String? base64PublicKey,
+    DetailProgress? buildProgress,
   }) async {
     await _runShorebirdBuildCommand(() async {
       const executable = 'flutter';
@@ -100,19 +102,45 @@ class ArtifactBuilder {
         ...args,
       ];
 
-      final result = await process.run(
+      final buildProcess = await process.start(
         executable,
         arguments,
         runInShell: true,
         environment: base64PublicKey?.toPublicKeyEnv(),
       );
 
-      if (result.exitCode != ExitCode.success.code) {
-        throw ArtifactBuildException(
-          'Failed to build: ${result.stderr}',
-        );
+      // Android builds are a series of gradle tasks that are all logged in
+      // this format. We can use the 'Task :' line to get the current task
+      // being run.
+      final gradleTaskRegex = RegExp(r'^\[.*\] \> (Task :.*)$');
+      buildProcess.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        if (buildProgress == null) {
+          return;
+        }
+        final captured = gradleTaskRegex.firstMatch(line)?.group(1);
+        if (captured != null) {
+          buildProgress.updateDetailMessage(captured);
+        }
+      });
+
+      final stderrLines = await buildProcess.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .toList();
+      final stdErr = stderrLines.join('\n');
+      final exitCode = await buildProcess.exitCode;
+      if (exitCode != ExitCode.success.code) {
+        throw ArtifactBuildException('Failed to build: $stdErr');
       }
     });
+
+    // If we've been updating the progress with gradle tasks, reset it to the
+    // original base message so as not to leave the user with a confusing
+    // message.
+    buildProgress?.updateDetailMessage(null);
 
     final projectRoot = shorebirdEnv.getShorebirdProjectRoot()!;
     try {
@@ -344,8 +372,7 @@ Please file a bug at https://github.com/shorebirdtech/shorebird/issues/new with 
     //    error: exportArchive: Communication with Apple failed
     //    error: exportArchive: No signing certificate "iOS Distribution" found
     //    error: exportArchive: Communication with Apple failed
-    final exportArchiveRegex = RegExp(r'error: exportArchive: (.+)$');
-
+    final exportArchiveRegex = RegExp(r'error: exportArchive:? (.+)$');
     return stderr
         .split('\n')
         .map((l) => l.trim())
@@ -406,11 +433,13 @@ Either run `flutter pub get` manually, or follow the steps in ${cannotRunInVSCod
   Future<File> buildElfAotSnapshot({
     required String appDillPath,
     required String outFilePath,
+    List<String> additionalArgs = const [],
   }) async {
     final arguments = [
       '--deterministic',
       '--snapshot-kind=app-aot-elf',
       '--elf=$outFilePath',
+      ...additionalArgs,
       appDillPath,
     ];
 

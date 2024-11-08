@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:mason_logger/mason_logger.dart';
@@ -5,7 +6,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:path/path.dart' as p;
 import 'package:scoped_deps/scoped_deps.dart';
 import 'package:shorebird_cli/src/artifact_builder.dart';
-import 'package:shorebird_cli/src/logger.dart';
+import 'package:shorebird_cli/src/logging/logging.dart';
 import 'package:shorebird_cli/src/os/operating_system_interface.dart';
 import 'package:shorebird_cli/src/platform/platform.dart';
 import 'package:shorebird_cli/src/shorebird_android_artifacts.dart';
@@ -39,6 +40,7 @@ void main() {
     late ShorebirdProcessResult buildProcessResult;
     late ShorebirdProcessResult pubGetProcessResult;
     late ArtifactBuilder builder;
+    late Process buildProcess;
 
     R runWithOverrides<R>(R Function() body) {
       return runScoped(
@@ -71,6 +73,7 @@ void main() {
       shorebirdArtifacts = MockShorebirdArtifacts();
       shorebirdEnv = MockShorebirdEnv();
       shorebirdProcess = MockShorebirdProcess();
+      buildProcess = MockProcess();
 
       when(
         () => shorebirdProcess.run(
@@ -89,6 +92,13 @@ void main() {
           runInShell: any(named: 'runInShell'),
         ),
       ).thenAnswer((_) async => buildProcessResult);
+      when(
+        () => shorebirdProcess.start(
+          any(),
+          any(),
+          runInShell: any(named: 'runInShell'),
+        ),
+      ).thenAnswer((_) async => buildProcess);
       when(() => buildProcessResult.exitCode).thenReturn(ExitCode.success.code);
       when(() => buildProcessResult.stdout).thenReturn(
         '''
@@ -175,13 +185,28 @@ Either run `flutter pub get` manually, or follow the steps in ${cannotRunInVSCod
             flavor: any(named: 'flavor'),
           ),
         ).thenReturn(File('app-release.aab'));
+        when(() => buildProcess.stdout).thenAnswer(
+          (_) => Stream.fromIterable(
+            [
+              'Some build output',
+            ].map(utf8.encode),
+          ),
+        );
+        when(() => buildProcess.stderr).thenAnswer(
+          (_) => Stream.fromIterable(
+            [
+              'Some build output',
+            ].map(utf8.encode),
+          ),
+        );
+        when(() => buildProcess.exitCode).thenAnswer((_) async => 0);
       });
 
       test('invokes the correct flutter build command', () async {
         await runWithOverrides(() => builder.buildAppBundle());
 
         verify(
-          () => shorebirdProcess.run(
+          () => shorebirdProcess.start(
             'flutter',
             ['build', 'appbundle', '--release'],
             runInShell: any(named: 'runInShell'),
@@ -201,7 +226,7 @@ Either run `flutter pub get` manually, or follow the steps in ${cannotRunInVSCod
         );
 
         verify(
-          () => shorebirdProcess.run(
+          () => shorebirdProcess.start(
             'flutter',
             [
               'build',
@@ -223,7 +248,7 @@ Either run `flutter pub get` manually, or follow the steps in ${cannotRunInVSCod
 
         setUp(() {
           when(
-            () => shorebirdProcess.run(
+            () => shorebirdProcess.start(
               'flutter',
               [
                 'build',
@@ -238,7 +263,7 @@ Either run `flutter pub get` manually, or follow the steps in ${cannotRunInVSCod
                 'SHOREBIRD_PUBLIC_KEY': base64PublicKey,
               },
             ),
-          ).thenAnswer((_) async => buildProcessResult);
+          ).thenAnswer((_) async => buildProcess);
         });
 
         test('adds the SHOREBIRD_PUBLIC_KEY to the environment', () async {
@@ -252,7 +277,7 @@ Either run `flutter pub get` manually, or follow the steps in ${cannotRunInVSCod
           );
 
           verify(
-            () => shorebirdProcess.run(
+            () => shorebirdProcess.start(
               'flutter',
               [
                 'build',
@@ -329,11 +354,63 @@ Either run `flutter pub get` manually, or follow the steps in ${cannotRunInVSCod
         });
       });
 
+      group('when output contains gradle task names', () {
+        late DetailProgress progress;
+
+        setUp(() {
+          progress = MockDetailProgress();
+
+          when(() => buildProcess.stdout).thenAnswer(
+            (_) => Stream.fromIterable(
+              [
+                'Some build output',
+                '[  ] > Task :app:bundleRelease',
+                'More build output',
+                '[  ] > Task :app:someOtherTask',
+                'Even more build output',
+              ]
+                  .map((line) => '$line${Platform.lineTerminator}')
+                  .map(utf8.encode),
+            ),
+          );
+          when(() => buildProcess.stderr).thenAnswer(
+            (_) => Stream.fromIterable(
+              ['Some build output'].map(utf8.encode),
+            ),
+          );
+        });
+
+        test('updates progress with gradle task names', () async {
+          await expectLater(
+            runWithOverrides(
+              () => builder.buildAppBundle(
+                buildProgress: progress,
+              ),
+            ),
+            completes,
+          );
+
+          // Required to trigger stdout stream events
+          await pumpEventQueue();
+
+          // Ensure we update the progress in the correct order and with the
+          // correct messages, and reset to the base message after the build
+          // completes.
+          verifyInOrder(
+            [
+              () => progress.updateDetailMessage('Task :app:bundleRelease'),
+              () => progress.updateDetailMessage('Task :app:someOtherTask'),
+              () => progress.updateDetailMessage(null),
+            ],
+          );
+        });
+      });
+
       group('after a build', () {
         group('when the build is successful', () {
           setUp(() {
-            when(() => buildProcessResult.exitCode)
-                .thenReturn(ExitCode.success.code);
+            when(() => buildProcess.exitCode)
+                .thenAnswer((_) async => ExitCode.success.code);
           });
 
           verifyCorrectFlutterPubGet(
@@ -342,8 +419,8 @@ Either run `flutter pub get` manually, or follow the steps in ${cannotRunInVSCod
 
           group('when the build fails', () {
             setUp(() {
-              when(() => buildProcessResult.exitCode)
-                  .thenReturn(ExitCode.software.code);
+              when(() => buildProcess.exitCode)
+                  .thenAnswer((_) async => ExitCode.software.code);
             });
 
             verifyCorrectFlutterPubGet(
@@ -800,7 +877,7 @@ Either run `flutter pub get` manually, or follow the steps in ${cannotRunInVSCod
             });
           });
 
-          group('with error message in stderr', () {
+          group('with error message in stderr (Xcode <= 15.x)', () {
             setUp(() {
               when(() => buildProcessResult.exitCode)
                   .thenReturn(ExitCode.success.code);
@@ -819,6 +896,47 @@ error: exportArchive: Communication with Apple failed
 error: exportArchive: No signing certificate "iOS Distribution" found
 error: exportArchive: Communication with Apple failed
 error: exportArchive: No signing certificate "iOS Distribution" found''',
+              );
+            });
+
+            test('throws ArtifactBuildException with error message', () {
+              expect(
+                () => runWithOverrides(() => builder.buildIpa(codesign: false)),
+                throwsA(
+                  isA<ArtifactBuildException>().having(
+                    (e) => e.message,
+                    'message',
+                    '''
+Failed to build:
+    Communication with Apple failed
+    No signing certificate "iOS Distribution" found
+    Team "My Team" does not have permission to create "iOS App Store" provisioning profiles.
+    No profiles for 'com.example.co' were found''',
+                  ),
+                ),
+              );
+            });
+          });
+
+          group('with error message in stderr (Xcode >= 16.x)', () {
+            setUp(() {
+              when(() => buildProcessResult.exitCode)
+                  .thenReturn(ExitCode.success.code);
+              when(() => buildProcessResult.stderr).thenReturn(
+                '''
+Encountered error while creating the IPA:
+error: exportArchive Communication with Apple failed
+error: exportArchive No signing certificate "iOS Distribution" found
+error: exportArchive Communication with Apple failed
+error: exportArchive No signing certificate "iOS Distribution" found
+error: exportArchive Team "My Team" does not have permission to create "iOS App Store" provisioning profiles.
+error: exportArchive No profiles for 'com.example.co' were found
+error: exportArchive Communication with Apple failed
+error: exportArchive No signing certificate "iOS Distribution" found
+error: exportArchive Communication with Apple failed
+error: exportArchive No signing certificate "iOS Distribution" found
+error: exportArchive Communication with Apple failed
+error: exportArchive No signing certificate "iOS Distribution" found''',
               );
             });
 
@@ -999,10 +1117,35 @@ Please file a bug at https://github.com/shorebirdtech/shorebird/issues/new with 
             ).thenReturn('gen_snapshot');
           });
 
+          test('passes additional args to gen_snapshot', () async {
+            await runWithOverrides(
+              () => builder.buildElfAotSnapshot(
+                appDillPath: '/app/dill/path',
+                outFilePath: '/path/to/out',
+                additionalArgs: ['--foo', 'bar'],
+              ),
+            );
+
+            verify(
+              () => shorebirdProcess.run(
+                'gen_snapshot',
+                [
+                  '--deterministic',
+                  '--snapshot-kind=app-aot-elf',
+                  '--elf=/path/to/out',
+                  '--foo',
+                  'bar',
+                  '/app/dill/path',
+                ],
+              ),
+            ).called(1);
+          });
+
           group('when build fails', () {
             setUp(() {
-              when(() => buildProcessResult.exitCode)
-                  .thenReturn(ExitCode.software.code);
+              when(
+                () => buildProcessResult.exitCode,
+              ).thenReturn(ExitCode.software.code);
             });
 
             test('throws ArtifactBuildException', () {

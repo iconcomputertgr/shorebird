@@ -15,7 +15,7 @@ import 'package:shorebird_cli/src/common_arguments.dart';
 import 'package:shorebird_cli/src/config/config.dart';
 import 'package:shorebird_cli/src/deployment_track.dart';
 import 'package:shorebird_cli/src/executables/executables.dart';
-import 'package:shorebird_cli/src/logger.dart';
+import 'package:shorebird_cli/src/logging/logging.dart';
 import 'package:shorebird_cli/src/metadata/metadata.dart';
 import 'package:shorebird_cli/src/patch_diff_checker.dart';
 import 'package:shorebird_cli/src/platform/platform.dart';
@@ -169,7 +169,10 @@ void main() {
       when(aotTools.isLinkDebugInfoSupported).thenAnswer((_) async => true);
 
       when(
-        () => artifactManager.downloadFile(any()),
+        () => artifactManager.downloadWithProgressUpdates(
+          any(),
+          message: any(named: 'message'),
+        ),
       ).thenAnswer((_) async => File(''));
 
       when(() => cache.updateAll()).thenAnswer((_) async => {});
@@ -316,8 +319,9 @@ void main() {
           test('validates successfully', () async {
             await runWithOverrides(() => command.createPatch(patcher));
 
-            verify(() => shorebirdValidator.validateFlavors(flavorArg: null))
-                .called(1);
+            verify(
+              () => shorebirdValidator.validateFlavors(flavorArg: null),
+            ).called(1);
           });
         });
 
@@ -330,8 +334,9 @@ void main() {
           test('validates successfully', () async {
             await runWithOverrides(() => command.createPatch(patcher));
 
-            verify(() => shorebirdValidator.validateFlavors(flavorArg: flavor))
-                .called(1);
+            verify(
+              () => shorebirdValidator.validateFlavors(flavorArg: flavor),
+            ).called(1);
           });
         });
       });
@@ -379,8 +384,9 @@ void main() {
               when(
                 () => argResults.wasParsed(CommonArguments.publicKeyArg.name),
               ).thenReturn(false);
-              when(() => argResults[CommonArguments.privateKeyArg.name])
-                  .thenReturn(createTempFile('private.pem').path);
+              when(
+                () => argResults[CommonArguments.privateKeyArg.name],
+              ).thenReturn(createTempFile('private.pem').path);
 
               await expectLater(
                 runWithOverrides(() => command.createPatch(patcher)),
@@ -405,8 +411,9 @@ void main() {
               when(
                 () => argResults.wasParsed(CommonArguments.publicKeyArg.name),
               ).thenReturn(true);
-              when(() => argResults[CommonArguments.publicKeyArg.name])
-                  .thenReturn(createTempFile('public.pem').path);
+              when(
+                () => argResults[CommonArguments.publicKeyArg.name],
+              ).thenReturn(createTempFile('public.pem').path);
 
               await expectLater(
                 runWithOverrides(() => command.createPatch(patcher)),
@@ -888,7 +895,12 @@ Please re-run the release command for this version or create a new release.''',
       final error = Exception('Failed to download primary release artifact.');
 
       setUp(() {
-        when(() => artifactManager.downloadFile(any())).thenThrow(error);
+        when(
+          () => artifactManager.downloadWithProgressUpdates(
+            any(),
+            message: any(named: 'message'),
+          ),
+        ).thenThrow(error);
       });
 
       test('logs error and exits with code 70', () async {
@@ -896,12 +908,6 @@ Please re-run the release command for this version or create a new release.''',
           () => runWithOverrides(command.run),
           exitsWithCode(ExitCode.software),
         );
-
-        verify(
-          () => progress.fail(
-            'Exception: Failed to download primary release artifact.',
-          ),
-        ).called(1);
       });
     });
 
